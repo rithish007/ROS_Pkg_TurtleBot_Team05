@@ -30,28 +30,7 @@ A finite state machine drives the robot around the 12 outer zones in order. Obst
 
 Builds a live 80×80 occupancy grid (0.05 m/cell) from LiDAR via Bresenham ray-tracing, inflated by robot radius for collision-free planning. D* Lite (Koenig & Likhachev, 2002) runs incrementally on the inflated grid — only affected edges are updated when new obstacles are observed. A pure-pursuit follower tracks the planned path, with front-clearance speed scaling as the only reactive safety layer.
 
-## Running in Simulation
-
-**Terminal 1 — Gazebo simulation:**
-```bash
-ros2 launch tuos_task_sims obstacle_avoidance.launch.py
-```
-
-**Terminal 2 — Build and launch exploration:**
-```bash
-cd ~/ros2_ws && colcon build --packages-select ele434_team05_2026 --symlink-install
-ros2 launch ele434_team05_2026 explore.launch.py
-```
-
-To switch between the two approaches, edit `launch/explore.launch.py` and change the `executable` field to `zone_exploration.py` or `zone_exploration_dstar.py`.
-
-## Running on the Real Robot
-
-SSH into the robot and run the same launch command. The launch file defaults to the real-robot SLAM configuration. Ensure the robot is fully booted and LiDAR is spinning before launching.
-
 ## Dependencies
 
 - ROS 2 Jazzy
-- `tuos_tb3_tools` (SLAM launch)
-- `tuos_task_sims` (simulation environment)
 - Standard ROS 2 packages: `rclpy`, `geometry_msgs`, `nav_msgs`, `sensor_msgs`
