@@ -1,1 +1,57 @@
-# ROS_Pkg_TurtleBot_Team05
+# ELE434 Team 05 — TurtleBot3 Autonomous Zone Exploration
+
+ROS 2 package for the ELE434 autonomous robotics assessment at the University of Sheffield. The robot must autonomously visit 12 outer zones of a 4×4 m arena within 90 seconds without colliding with any obstacles.
+
+## Task Overview
+
+The arena is divided into a 4×4 grid of 1×1 m zones. The 12 outer zones each score 1 mark when the robot's full body enters them. Four coloured cylinders and four wooden wall assemblies are placed randomly each run.
+
+- **Robot:** TurtleBot3 WafflePi (ROS 2 Jazzy, Ubuntu 24.04)
+- **Max linear speed:** 0.26 m/s
+- **Max angular speed:** 1.82 rad/s
+
+## Package Structure
+
+```
+scripts/
+  zone_exploration.py        # Approach 1: FSM + reactive obstacle avoidance
+  zone_exploration_dstar.py  # Approach 2: D* Lite path planning + pure pursuit
+launch/
+  explore.launch.py          # Launches SLAM + exploration node
+```
+
+## Approaches
+
+### Approach 1 — FSM + Reactive Avoidance (`zone_exploration.py`)
+
+A finite state machine drives the robot around the 12 outer zones in order. Obstacle avoidance is purely reactive: when a LiDAR hit is detected in the forward cone, the robot spins in the direction of greater clearance until the path to the target is clear again.
+
+### Approach 2 — D* Lite Path Planning (`zone_exploration_dstar.py`)
+
+Builds a live 80×80 occupancy grid (0.05 m/cell) from LiDAR via Bresenham ray-tracing, inflated by robot radius for collision-free planning. D* Lite (Koenig & Likhachev, 2002) runs incrementally on the inflated grid — only affected edges are updated when new obstacles are observed. A pure-pursuit follower tracks the planned path, with front-clearance speed scaling as the only reactive safety layer.
+
+## Running in Simulation
+
+**Terminal 1 — Gazebo simulation:**
+```bash
+ros2 launch tuos_task_sims obstacle_avoidance.launch.py
+```
+
+**Terminal 2 — Build and launch exploration:**
+```bash
+cd ~/ros2_ws && colcon build --packages-select ele434_team05_2026 --symlink-install
+ros2 launch ele434_team05_2026 explore.launch.py
+```
+
+To switch between the two approaches, edit `launch/explore.launch.py` and change the `executable` field to `zone_exploration.py` or `zone_exploration_dstar.py`.
+
+## Running on the Real Robot
+
+SSH into the robot and run the same launch command. The launch file defaults to the real-robot SLAM configuration. Ensure the robot is fully booted and LiDAR is spinning before launching.
+
+## Dependencies
+
+- ROS 2 Jazzy
+- `tuos_tb3_tools` (SLAM launch)
+- `tuos_task_sims` (simulation environment)
+- Standard ROS 2 packages: `rclpy`, `geometry_msgs`, `nav_msgs`, `sensor_msgs`
