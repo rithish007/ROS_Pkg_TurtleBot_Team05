@@ -1,20 +1,4 @@
 #!/usr/bin/env python3
-"""
-ELE434 zone exploration using D* Lite path planning + reactive safety.
-
-Architecture
-------------
-- OccupancyGrid: 40x40 cells over [-2, 2]^2, 0.10 m resolution, built
-  incrementally from LiDAR via Bresenham ray-trace. Inflated by robot
-  radius for planning.
-- DStarLite: Koenig & Likhachev (2002) incremental search on the
-  inflated grid. Replans on edge-cost changes only - no from-scratch
-  rebuilds while the goal stays fixed.
-- PathFollower: pure-pursuit on the D* Lite path. Linear speed scaled
-  by front clearance (the only reactive layer; planner owns steering).
-- ExploreNode: ROS plumbing, picks closest unvisited zone, triggers
-  replans on goal change / path invalidation / stuck timeout.
-"""
 import heapq
 import math
 
@@ -27,10 +11,6 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 
 
-# ---------------------------------------------------------------------------
-# Occupancy grid
-# ---------------------------------------------------------------------------
-
 class OccupancyGrid:
     UNKNOWN = -1
     FREE = 0
@@ -39,20 +19,6 @@ class OccupancyGrid:
     def __init__(self, size=80, res=0.05, origin=(-2.0, -2.0),
                  inflation_radius=3, wall_inflation_radius=2,
                  shoulder_pad_radius=1):
-        # 0.05 m cells let the grid represent ~0.30 m gaps between
-        # obstacles. Inflation 3 cells = 0.15 m disc (circular kernel
-        # below), roughly matching the chassis footprint with antennas.
-        # The diagonals are reclaimed vs a square kernel, so the planner
-        # can still squeeze through narrow gaps at 45 degrees.
-        #
-        # `shoulder_pad_radius` adds a directional pad at the 4 corner
-        # diagonals only - is_blocked treats a cell as blocked if any
-        # of (i+-k, j+-k) is in the inflated set. The Waffle's
-        # half-diagonal corner reach (~0.205 m) exceeds the 0.15 m disc
-        # by ~0.055 m, which is what makes pivots near obstacles graze
-        # the rear corners. k=1 cell adds sqrt(2)*0.05 ~ 0.071 m at the
-        # diagonals without padding the cardinal directions (so the
-        # tight cylinder/wall gap stays open).
         self.size = size
         self.res = res
         self.origin = origin
@@ -113,7 +79,6 @@ class OccupancyGrid:
 
     def update_from_scan(self, ranges, angle_min, angle_increment,
                          rx, ry, ryaw, range_max, beam_step=4):
-        """Ray-trace each LiDAR beam, mark FREE along + OCCUPIED at hit."""
         n = len(ranges)
         if n == 0:
             return
@@ -152,7 +117,6 @@ class OccupancyGrid:
                         self._set_cell(last[0], last[1], self.FREE)
 
     def recompute_inflation(self):
-        """Rebuild the inflated set; return (added, removed) cells."""
         new_inflated = set()
         for (i, j) in self.occupied:
             is_wall = (i == 0 or i == self.size - 1 or
@@ -183,8 +147,6 @@ class OccupancyGrid:
         return False
 
     def clear_inflation_around(self, cell, radius=1):
-        """Temporarily un-block cells near the robot so the planner never
-        sees the robot's own cell as blocked."""
         ci, cj = cell
         removed = set()
         for di in range(-radius, radius + 1):
@@ -196,13 +158,7 @@ class OccupancyGrid:
         return removed
 
 
-# ---------------------------------------------------------------------------
-# D* Lite
-# ---------------------------------------------------------------------------
-
 class DStarLite:
-    """D* Lite (Koenig & Likhachev, 2002), 8-connected, lazy-deletion heap."""
-
     SQRT2 = math.sqrt(2)
 
     def __init__(self, grid: OccupancyGrid):
@@ -343,7 +299,6 @@ class DStarLite:
             self.update_vertex(u)
 
     def extract_path(self, max_steps=400):
-        """Greedy walk from start to goal via min(cost + g) successor."""
         path = [self.start]
         s = self.start
         seen = {s}
@@ -370,10 +325,6 @@ class DStarLite:
                 return True
         return False
 
-
-# ---------------------------------------------------------------------------
-# ROS Node
-# ---------------------------------------------------------------------------
 
 class ExploreNode(Node):
     ROBOT_RADIUS = 0.176
@@ -456,7 +407,6 @@ class ExploreNode(Node):
 
         self.get_logger().info("D* Lite explore node initialised.")
 
-    # ---- ROS callbacks ------------------------------------------------
     def _scan_cb(self, msg: LaserScan):
         cleaned = []
         for r in msg.ranges:
@@ -481,7 +431,6 @@ class ExploreNode(Node):
         self.yaw = math.atan2(siny, cosy)
         self.odom_ready = True
 
-    # ---- Utilities ----------------------------------------------------
     @staticmethod
     def _clamp(v, lo, hi):
         return max(lo, min(hi, v))
@@ -501,7 +450,6 @@ class ExploreNode(Node):
         msg.twist.angular.z = float(ang)
         return msg
 
-    # ---- Zone tracking ------------------------------------------------
     def _zone_at(self, x, y):
         for zid, (xmn, xmx, ymn, ymx) in self.zones.items():
             if (xmn + self.ZONE_MARGIN <= x <= xmx - self.ZONE_MARGIN and
@@ -514,7 +462,6 @@ class ExploreNode(Node):
         return ((xmn + xmx) / 2.0, (ymn + ymx) / 2.0)
 
     def _zone_entry_point(self, zid):
-        """Closest unblocked cell in the zone's 'full body inside' sub-rectangle."""
         xmn, xmx, ymn, ymx = self.zones[zid]
         fxmn = xmn + self.ZONE_MARGIN
         fxmx = xmx - self.ZONE_MARGIN
@@ -558,7 +505,6 @@ class ExploreNode(Node):
                 best, best_d = zid, d
         return best
 
-    # ---- Replan logic -------------------------------------------------
     def _replan(self, reason: str):
         if self.target_zone is not None:
             self.target_entry = self._zone_entry_point(self.target_zone)
@@ -641,9 +587,7 @@ class ExploreNode(Node):
                     or self.path[-1] != self.planner.goal:
                 self._replan('path stale')
 
-    # ---- Path following ----------------------------------------------
     def _cone_clearance(self, centre_idx):
-        """Min range within a +-30 degree cone centred on `centre_idx`."""
         if not self.ranges:
             return math.inf
         n = len(self.ranges)
@@ -738,7 +682,6 @@ class ExploreNode(Node):
             f'cmd=({lin:+.2f},{ang:+.2f}) path={path_len}'
         )
 
-    # ---- Stuck handling ----------------------------------------------
     def _check_stuck(self):
         now = self.get_clock().now().nanoseconds * 1e-9
         if self.stuck_x is None:
@@ -752,7 +695,6 @@ class ExploreNode(Node):
             return True
         return False
 
-    # ---- Main control loop -------------------------------------------
     def control_loop(self):
         if not self.scan_ready or not self.odom_ready:
             return
@@ -816,10 +758,6 @@ class ExploreNode(Node):
         self.get_logger().info('Stopping robot.')
         self.cmd_vel_pub.publish(TwistStamped())
 
-
-# ---------------------------------------------------------------------------
-# Entrypoint
-# ---------------------------------------------------------------------------
 
 def main(args=None):
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
