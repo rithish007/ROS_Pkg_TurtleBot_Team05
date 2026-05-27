@@ -1,4 +1,4 @@
-# ELE434 Team 05 — TurtleBot3 Autonomous Zone Exploration
+# TurtleBot3 Autonomous Zone Exploration
 
 ROS 2 package for the ELE434 autonomous robotics assessment at the University of Sheffield. The robot must autonomously visit 12 outer zones of a 4×4 m arena within 90 seconds without colliding with any obstacles.
 
